@@ -172,5 +172,31 @@ namespace dae
 #endif
 		}
 #pragma warning(pop)
+
+
+		bool IsInTriangel(const Vector2& screenspacePoint, const Vector2& v0, const Vector2& v1, const Vector2& v2)
+		{
+			Vector2 edgeA{ v1 - v0 };
+			if (Vector2::Cross(edgeA, screenspacePoint - v0) < 0)
+			{
+				return false;
+			}
+
+			Vector2 edgeB{ v2 - v1 };
+			if (Vector2::Cross(edgeB, screenspacePoint - v1) < 0)
+			{
+				return false;
+			}
+
+			Vector2 edgeC{ v0 - v2 };
+			if (Vector2::Cross(edgeC, screenspacePoint - v2) < 0)
+			{
+				return false;
+			}
+
+			return true;
+		}
 	}
+
+
 }
