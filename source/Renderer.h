@@ -49,12 +49,14 @@ namespace dae
 
 		float m_AspectRatio;
 		Texture* m_pTexture;
+		Mesh* m_pMesh;
 
 		//Function that transforms the vertices from the mesh from World space to Screen space
 		void VertexTransformationFunction(const std::vector<Vertex>& vertices_in, std::vector<Vertex>& vertices_out) const;
 		void VertexTransformationFunction(const std::vector<Mesh>& meshes_in, std::vector<Mesh>& meshes_out) const;
+		void VertexTransformationFunction(Mesh& mesh);
 
-		void RenderMeshTriangle(const Mesh& mesh, const std::vector<Vector2>& screenSpace, const std::vector<Vertex>& verticesNDC, int vertexIndex, bool swapVertices);
+		void RenderMeshTriangle(const Mesh& mesh, const std::vector<Vector2>& screenSpace, int vertexIndex, bool swapVertices);
 
 		void ClearBackground() const;
 		void ResetDepthBuffer();

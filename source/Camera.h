@@ -24,6 +24,7 @@ namespace dae
 		Vector3 origin{};
 		float fovAngle{90.f};
 		float fov{ tanf((fovAngle * TO_RADIANS) / 2.f) };
+		float aspectRatio{ 1.f };
 
 		Vector3 forward{Vector3::UnitZ};
 		Vector3 up{Vector3::UnitY};
@@ -32,15 +33,24 @@ namespace dae
 		float totalPitch{};
 		float totalYaw{};
 
+		float nearPlane{ 0.01f };
+		float farPlane{ 100.f };
+
 		Matrix invViewMatrix{};
 		Matrix viewMatrix{};
+		Matrix projectionMatrix{};
 
-		void Initialize(float _fovAngle = 90.f, Vector3 _origin = {0.f,0.f,0.f})
+		void Initialize(float _fovAngle = 90.f, Vector3 _origin = {0.f,0.f,0.f}, float _aspectRatio = 1.f)
 		{
 			fovAngle = _fovAngle;
 			fov = tanf((fovAngle * TO_RADIANS) / 2.f);
 
 			origin = _origin;
+
+			aspectRatio = _aspectRatio;
+
+			CalculateProjectionMatrix();
+
 		}
 
 		void CalculateViewMatrix()
@@ -64,7 +74,7 @@ namespace dae
 
 		void CalculateProjectionMatrix()
 		{
-			//projectionMatrix = Matrix::CreatePerspectiveFovLH(fov, aspectRatio, nearPlane, farPlane);
+			projectionMatrix = Matrix::CreatePerspectiveFovLH(fov, aspectRatio, nearPlane, farPlane);
 		}
 
 		void Update(Timer* pTimer)

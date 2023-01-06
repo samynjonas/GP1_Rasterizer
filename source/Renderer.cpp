@@ -29,9 +29,13 @@ Renderer::Renderer(SDL_Window* pWindow) :
 	ResetDepthBuffer();
 
 	//Initialize Camera
-	m_Camera.Initialize(60.f, { .0f, .0f, -10.f });
+	m_Camera.Initialize(60.f, { .0f,.5f,-30.f }, m_AspectRatio);
 
-	m_pTexture = Texture::LoadFromFile("Resources/uv_grid_2.png");
+	m_pTexture = Texture::LoadFromFile("Resources/tuktuk.png");
+	m_pMesh = new Mesh();
+
+	Utils::ParseOBJ("Resources/tuktuk.obj", m_pMesh->vertices, m_pMesh->indices);
+
 }
 
 Renderer::~Renderer()
@@ -40,6 +44,9 @@ Renderer::~Renderer()
 
 	delete m_pTexture;
 	m_pTexture = nullptr;
+
+	delete m_pMesh;
+	m_pMesh = nullptr;
 }
 
 void Renderer::Update(Timer* pTimer)
@@ -53,53 +60,21 @@ void Renderer::Render()
 	//Lock BackBuffer
 	SDL_LockSurface(m_pBackBuffer);
 
-	//Define Mesh
-	std::vector<Mesh> meshes_world
-	{
-		Mesh
-		{
-			{
-				Vertex{{ -3,  3, -2 }, { 1, 0, 0 }, { 0.0, 0.0 }},
-				Vertex{{  0,  3, -2 }, { 1, 0, 0 }, { 0.5, 0.0 }},
-				Vertex{{  3,  3, -2 }, { 1, 0, 0 }, { 1.0, 0.0 }},
-				Vertex{{ -3,  0, -2 }, { 1, 0, 0 }, { 0.0, 0.5 }},
-				Vertex{{  0,  0, -2 }, { 1, 0, 0 }, { 0.5, 0.5 }},
-				Vertex{{  3,  0, -2 }, { 1, 0, 0 }, { 1.0, 0.5 }},
-				Vertex{{ -3, -3, -2 }, { 1, 0, 0 }, { 0.0, 1.0 }},
-				Vertex{{  0, -3, -2 }, { 1, 0, 0 }, { 0.5, 1.0 }},
-				Vertex{{  3, -3, -2 }, { 1, 0, 0 }, { 1.0, 1.0 }},
-			},
-			{
-				3,0,4,1,5,2,
-				2,6,
-				6,3,7,4,8,5
-			},
-			PrimitiveTopology::TriangleStrip
-			
-			/*{
-				3, 0, 1,	1, 4, 3,	4, 1, 2,
-				2, 5, 4,	6, 3, 4,	4, 7, 6,
-				7, 4, 5,	5, 8, 7
-			},
-			PrimitiveTopology::TriangleList*/
-		}
-	};
+	VertexTransformationFunction(*m_pMesh);
+	std::vector<Mesh> meshes_world{ *m_pMesh };
+
 
 	//Go over all meshes
-	for (const auto& mesh : meshes_world)
+	for (auto& mesh : meshes_world)
 	{
-		std::vector<Vertex> verticesNDC{};
-		VertexTransformationFunction(mesh.vertices, verticesNDC);
+		VertexTransformationFunction(mesh);
 
 		std::vector<Vector2> screenSpaceVertices;
-		for (const Vertex& vertexNDC : verticesNDC)
+		for (const Vertex_Out& ndcVertex : mesh.vertices_out)
 		{
-			Vector2 ScreenSpaceVertex{};
-
-			ScreenSpaceVertex.x = (vertexNDC.position.x + 1) / 2.f * m_Width;
-			ScreenSpaceVertex.y = (1 - vertexNDC.position.y) / 2.f * m_Height;
-
-			screenSpaceVertices.push_back(ScreenSpaceVertex);
+			// Formula from slides
+			// NDC --> Screenspace
+			screenSpaceVertices.push_back({ (ndcVertex.position.x + 1) / 2.0f * m_Width, (1.0f - ndcVertex.position.y) / 2.0f * m_Height });
 		}
 
 		ResetDepthBuffer();
@@ -112,13 +87,13 @@ void Renderer::Render()
 		case PrimitiveTopology::TriangleList:
 			for (int index{ 0 }; index < mesh.indices.size(); index += 3)
 			{
-				RenderMeshTriangle(mesh, screenSpaceVertices, verticesNDC, index, false);
+				RenderMeshTriangle(mesh, screenSpaceVertices, index, false);
 			}
 			break;
 		case PrimitiveTopology::TriangleStrip:
 			for (int index{ 0 }; index < mesh.indices.size() - 2; ++index)
 			{
-				RenderMeshTriangle(mesh, screenSpaceVertices, verticesNDC, index, index % 2);
+				RenderMeshTriangle(mesh, screenSpaceVertices, index, index % 2);
 			}
 			break;
 		default:
@@ -168,7 +143,34 @@ void Renderer::VertexTransformationFunction(const std::vector<Mesh>& meshes_in, 
 	}
 }
 
-void dae::Renderer::RenderMeshTriangle(const Mesh& mesh, const std::vector<Vector2>& screenSpace, const std::vector<Vertex>& verticesNDC, int vertexIndex, bool swapVertices)
+void Renderer::VertexTransformationFunction(Mesh& mesh)
+{
+	Matrix worldViewProjectionMatrix{ mesh.worldMatrix * m_Camera.viewMatrix * m_Camera.projectionMatrix };
+	mesh.vertices_out.clear();
+	mesh.vertices_out.reserve(mesh.vertices.size());
+
+	for (const Vertex& v : mesh.vertices)
+	{
+		Vertex_Out vertex_out{ Vector4{}, v.color, v.uv, v.normal, v.tangent };
+
+		vertex_out.position = worldViewProjectionMatrix.TransformPoint({ v.position, 1.0f });
+		vertex_out.viewDirection = Vector3{ vertex_out.position.x, vertex_out.position.y, vertex_out.position.z }.Normalized();
+
+		vertex_out.normal = mesh.worldMatrix.TransformVector(v.normal);
+		vertex_out.tangent = mesh.worldMatrix.TransformVector(v.tangent);
+
+
+		const float invVw{ 1 / vertex_out.position.w };
+		vertex_out.position.x *= invVw;
+		vertex_out.position.y *= invVw;
+		vertex_out.position.z *= invVw;
+
+		// emplace back because we made vOut just to store in this vector
+		mesh.vertices_out.emplace_back(vertex_out);
+	}
+}
+
+void dae::Renderer::RenderMeshTriangle(const Mesh& mesh, const std::vector<Vector2>& screenSpace, int vertexIndex, bool swapVertices)
 {
 	const size_t vertexIndex0{ mesh.indices[vertexIndex + (2 * swapVertices)] };
 	const size_t vertexIndex1{ mesh.indices[vertexIndex + 1] };
@@ -206,13 +208,8 @@ void dae::Renderer::RenderMeshTriangle(const Mesh& mesh, const std::vector<Vecto
 	// For each pixel
 	for (int px{ startX }; px < endX; ++px)
 	{
-		//std::cout << "px: " << px << std::endl;
-
 		for (int py{ startY }; py < endY; ++py)
 		{
-			//std::cout << "py: " << py << std::endl;
-
-
 			const Vector2 currentPixel{ static_cast<float>(px), static_cast<float>(py) };
 			const int pixelIdx{ px + py * m_Width };
 
@@ -231,13 +228,13 @@ void dae::Renderer::RenderMeshTriangle(const Mesh& mesh, const std::vector<Vecto
 				weight1 *= invTotalTriangleArea;
 				weight2 *= invTotalTriangleArea;
 
-				const float depth0{ verticesNDC[vertexIndex0].position.z };
-				const float depth1{ verticesNDC[vertexIndex1].position.z };
-				const float depth2{ verticesNDC[vertexIndex2].position.z };
+				const float depth0{ mesh.vertices_out[vertexIndex0].position.z };
+				const float depth1{ mesh.vertices_out[vertexIndex1].position.z };
+				const float depth2{ mesh.vertices_out[vertexIndex2].position.z };
 
 				const float interpolatedDepth = 1.f / ( ((1.f / depth0) * weight0) + ((1.f / depth1) * weight1) + ((1.f / depth2) * weight2));
 
-				if (m_pDepthBufferPixels[pixelIdx] < interpolatedDepth)
+				if (m_pDepthBufferPixels[pixelIdx] < interpolatedDepth || interpolatedDepth < 0.f || interpolatedDepth > 1.f)
 				{
 					continue;
 				}
@@ -246,9 +243,12 @@ void dae::Renderer::RenderMeshTriangle(const Mesh& mesh, const std::vector<Vecto
 				
 				//finalColor = { weight0 * mesh.vertices[vertexIndex0].color + weight1 * mesh.vertices[vertexIndex1].color + weight2 * mesh.vertices[vertexIndex2].color };
 				
-				Vector2 UVinterpolated{ (((mesh.vertices[vertexIndex0].uv / depth0) * weight0) + ((mesh.vertices[vertexIndex1].uv / depth1) * weight1) + ((mesh.vertices[vertexIndex2].uv / depth2) * weight2)) * interpolatedDepth };
-				finalColor = m_pTexture->Sample(UVinterpolated);
+				//Vector2 UVinterpolated{ (((mesh.vertices[vertexIndex0].uv / depth0) * weight0) + ((mesh.vertices[vertexIndex1].uv / depth1) * weight1) + ((mesh.vertices[vertexIndex2].uv / depth2) * weight2)) * interpolatedDepth };
+				//finalColor = m_pTexture->Sample(UVinterpolated);
 
+
+				const float depthCol{ Remap(interpolatedDepth,0.985f,1.f) };
+				finalColor = { depthCol,depthCol,depthCol };
 
 				//Update Color in Buffer
 				finalColor.MaxToOne();
