@@ -9,6 +9,8 @@
 #include "Texture.h"
 #include "Utils.h"
 
+#include <iostream>
+
 using namespace dae;
 
 Renderer::Renderer(SDL_Window* pWindow) :
@@ -66,7 +68,6 @@ void Renderer::Render()
 
 	//converting coordinates to screen space
 	std::vector<Vector2> ScreenSpaceTriangle;
-
 	for (const Vertex& vertex : vertices_ndc)
 	{
 		Vector2 ScreenSpaceVertex{};
@@ -85,20 +86,42 @@ void Renderer::Render()
 
 
 	//Go over each triangle
-	for (size_t index = 0; index < vertices_world.size(); index += 3)
+	for (int index = 0; index < vertices_world.size(); index += 3)
 	{
-		//Go over each pixel
-		for (int px{}; px < m_Width; ++px)
+		Vector2 topLeft{	FLT_MAX, FLT_MAX };
+		Vector2 botRight{	FLT_MIN, FLT_MIN };
+		for (int i{ index }; i < index + 3; ++i)
 		{
-			for (int py{}; py < m_Height; ++py)
+			topLeft.x	= std::min(topLeft.x,	ScreenSpaceTriangle[i].x);
+			topLeft.y	= std::min(topLeft.y,	ScreenSpaceTriangle[i].y);
+			botRight.x	= std::max(botRight.x,	ScreenSpaceTriangle[i].x);
+			botRight.y	= std::max(botRight.y,	ScreenSpaceTriangle[i].y);
+		}
+		topLeft.x	= Clamp(topLeft.x,	0.f, static_cast<float>(m_Width));
+		topLeft.y	= Clamp(topLeft.y,	0.f, static_cast<float>(m_Height));
+		botRight.x	= Clamp(botRight.x, 0.f, static_cast<float>(m_Width));
+		botRight.y	= Clamp(botRight.y, 0.f, static_cast<float>(m_Height));
+
+		const int startX{	static_cast<int>(topLeft.x)  };
+		const int endX{		static_cast<int>(botRight.x) };
+		const int startY{	static_cast<int>(topLeft.y)	 };
+		const int endY{		static_cast<int>(botRight.y) };
+
+
+		//Go over each pixel
+		for (int px{startX}; px < endX; ++px)
+		{
+			for (int py{startY}; py < endY; ++py)
 			{
 				Vector2 currentPixel{ static_cast<float>(px), static_cast<float>(py) };
 				const int pixelIndex{ px + py * m_Width };
-				ColorRGB finalColor{};
 
-				bool hitTriangle{ Utils::IsInTriangel(currentPixel, ScreenSpaceTriangle[0], ScreenSpaceTriangle[1], ScreenSpaceTriangle[2]) };
+				bool hitTriangle{ Utils::IsInTriangel(currentPixel, ScreenSpaceTriangle[index + 0], ScreenSpaceTriangle[index + 1], ScreenSpaceTriangle[index + 2]) };
 				if (hitTriangle)
 				{
+					ColorRGB finalColor{};
+					
+					
 					// weights
 					float weight0, weight1, weight2;
 					weight0 = Vector2::Cross((currentPixel - ScreenSpaceTriangle[index + 1]), (ScreenSpaceTriangle[index + 1] - ScreenSpaceTriangle[index + 2]));
@@ -113,22 +136,22 @@ void Renderer::Render()
 
 					const Vector3 middleOfTriangle{ weight0 * vertices_world[index + 0].position + weight1 * vertices_world[index + 1].position + weight2 * vertices_world[index + 2].position };
 					const float depthValue{ (m_Camera.origin - middleOfTriangle).SqrMagnitude() };
-					if (m_pDepthBufferPixels[pixelIndex] < depthValue) continue;
+					if (m_pDepthBufferPixels[pixelIndex] < depthValue)
+					{
+						continue;
+					}
 
 					m_pDepthBufferPixels[pixelIndex] = depthValue;
 
-					finalColor = { weight0 * vertices_world[index + 0].color + weight1 * vertices_world[index + 1].color + weight2 * vertices_world[index + 2].color };
-
+					finalColor = { weight0 * vertices_world[index + 0].color + weight1 * vertices_world[index + 1].color + weight2 * vertices_world[index + 2].color };					
+					finalColor.MaxToOne();
+					m_pBackBufferPixels[px + (py * m_Width)] = SDL_MapRGB(m_pBackBuffer->format,
+						static_cast<uint8_t>(finalColor.r * 255),
+						static_cast<uint8_t>(finalColor.g * 255),
+						static_cast<uint8_t>(finalColor.b * 255));
 				}
 
 
-				//Update Color in Buffer
-				finalColor.MaxToOne();
-
-				m_pBackBufferPixels[px + (py * m_Width)] = SDL_MapRGB(m_pBackBuffer->format,
-					static_cast<uint8_t>(finalColor.r * 255),
-					static_cast<uint8_t>(finalColor.g * 255),
-					static_cast<uint8_t>(finalColor.b * 255));
 			}
 		}
 	}
